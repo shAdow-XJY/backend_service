@@ -1,27 +1,44 @@
 import 'dart:convert';
-import 'package:shelf/shelf.dart';
+import 'package:backend_service/server/config/server_config.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
+
+import 'routers/novel_routes.dart';
+
+Middleware createErrorHandlingMiddleware() {
+  return (Handler innerHandler) {
+    return (Request request) async {
+      try {
+        final response = await innerHandler(request);
+        return response;
+      } catch (e, stackTrace) {
+        print('Error: $e\nStackTrace: $stackTrace');
+        return Response.internalServerError(
+          body: jsonEncode({
+            'error': 'An unexpected error occurred.',
+            'message': e.toString(), // 可以选择是否返回详细的错误信息
+          }),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+    };
+  };
+}
+
 
 Future<void> serverMain() async {
   final router = Router();
 
-  router.get('/api/resource/<id>', (Request request, String id) {
-    // 返回 JSON 格式的数据
-    final resource = {'id': id, 'name': 'Resource $id'};
-    return Response.ok(jsonEncode(resource), headers: {'Content-Type': 'application/json'});
-  });
+  // 加载不同模块的路由
+  router.mount(BSNovelAPIConfig().apiPrefix, createNovelRouter().call);
 
-  router.get('/<file|.*>', (Request request) {
-    // 返回普通文本
-    return Response.ok('789', headers: {'Content-Type': 'text/plain'});
-  });
+  // 创建服务器并添加错误处理的中间件
+  final handler = const Pipeline()
+      .addMiddleware(logRequests())
+      .addMiddleware(createErrorHandlingMiddleware()) // 添加错误处理中间件
+      .addHandler(router.call);
 
-  // 创建服务器
-  final handler = const Pipeline().addMiddleware(logRequests()).addHandler(router);
-
-  final server = await shelf_io.serve(handler, 'localhost', 8080);
-  print('Server listening on port http://localhost:${server.port}');
+  final server = await shelf_io.serve(handler, BSServerConfig.host, BSServerConfig.port);
+  print('Server listening on port http://${BSServerConfig.host}:${BSServerConfig.port}');
 }
